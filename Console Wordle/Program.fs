@@ -18,8 +18,8 @@ let validateLength (value: string) =
 let isValidWord validWords value  =
     let index  = System.Array.BinarySearch(validWords, value)
     match index with
-       | (i) when i >=0 -> Ok value
-       | _ ->  Error "Error: not a valid word"
+    | (i) when i >=0 -> Ok value
+    | _ ->  Error "Error: not a valid word"
 
 let validate value validWords =
     value
@@ -41,21 +41,28 @@ let toTiles (input:string) (expected:string) =
         ||> Seq.map2 toGreenOrGray
         |> Seq.toArray
 
-    let tryFindExisting targetChar arr =
-        arr |> Array.tryFindIndex (fun (_,r) -> Gray(targetChar) = r)
+    let grayCharFrequency tiles = 
+        tiles |> Seq.choose (function | (_,Gray(c)) -> Some c
+                                      | _ -> None)
+                                      |> Seq.countBy (fun ch->ch)
+                                      |> Map.ofSeq
+
+    let mutable grayFreq = grayCharFrequency tupleArray
+
+    // For each gray input letter, check if in grayFreq and greater than 0
+    // Reduce key value by one
+    // Return yellow
 
     let tiles = tupleArray
-                |> Array.map
-                        (fun pair ->
-                            match pair with
-                            | (Gray(char), _) ->
-                                match tryFindExisting char tupleArray with
-                                | Some (index) ->
-                                    let (l,_) = tupleArray.[index]
-                                    tupleArray.[index] <- (l,Yellow(' '))
+                |> Array.map 
+                 (function | (Gray(char), _) ->
+                                match grayFreq.TryFind char with
+                                | Some count when count > 0 ->
+                                    grayFreq <- grayFreq.Change (char, Option.bind (fun k -> Some (k - 1)))
                                     Yellow(char)
-                                | None -> Gray(char)
+                                | _ -> Gray(char)
                             | (l,_) -> l)
+                       
 
     tiles
 
@@ -73,37 +80,41 @@ let printTiles (tiles: Tile[] list) =
 
     for tile in tiles do
         let row = tile |> Array.map prettyString
-        table = table.AddRow(row) |> ignore;
+        table.AddRow(row) |> ignore;
     AnsiConsole.Write(table)
 
-let rec main word (state: Tile[] list) validWords =
-    if state.Length >= 6 then
-        AnsiConsole.MarkupLine $"Too bad, the answer was [white]{word}[/]"
-        state
-    else
-        let line = AnsiConsole.Ask<string> "Please input your [gray]guess:[/]"
+let main word validWords maxGuesses =
+    let rec loop (state: Tile[] list) = 
+        if state.Length >= maxGuesses then
+            AnsiConsole.MarkupLine $"Too bad, the answer was [white]{word}[/]"
+            state
+        else
+            let input = AnsiConsole.Ask<string> "Please input your [gray]guess:[/]"
 
-        match validate (Ok line) validWords with
-        | Ok input ->
-            let wordTile = toTiles input word
-            if state |> List.contains wordTile then
-                AnsiConsole.MarkupLine $"[Red]Error you've already used {input} before![/]"
-                main word state validWords
-            else
-                let state = state @ [wordTile]
-                printTiles state
-
-                if word = input then
-                    AnsiConsole.WriteLine $"Well done you solved it in {state.Length} guesses"
-                    state
+            match validate (Ok input) validWords with
+            | Ok input ->
+                let wordTile = toTiles input word
+                if state |> List.contains wordTile then
+                    AnsiConsole.MarkupLine $"[Red]Error you've already used {input} before![/]"
+                    loop state 
                 else
-                    main word state validWords
+                    let state = state @ [wordTile]
+                    printTiles state
 
-        | Error error ->
-            AnsiConsole.MarkupLine $"[Red]{error}[/]"
-            main word state validWords
+                    if word = input then
+                        AnsiConsole.WriteLine $"Well done you solved it in {state.Length} guesses"
+                        state
+                    else
+                        loop state 
+
+            | Error error ->
+                AnsiConsole.MarkupLine $"[Red]{error}[/]"
+                loop state 
+
+    loop List.empty
 
 let valLength = 5
+let maxGuesses = 6
 let validGuessText = File.ReadAllText("./ValidGuesses.txt")
 let validWords = JsonConvert.DeserializeObject<string[]>(validGuessText)
 
@@ -114,5 +125,5 @@ let mutable titleFig = FigletText("F# Wordle")
 AnsiConsole.Write(titleFig);
 
 let i = Random().Next(wordList.Length)
-let wordGoal = wordList.[i];
-main wordGoal List.empty validWords |> ignore
+let target = wordList.[i];
+main target validWords maxGuesses |> ignore
